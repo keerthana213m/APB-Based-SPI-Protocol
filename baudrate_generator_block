@@ -1,5 +1,28 @@
 // baudrate generator block
 
+/*
+-----------------------------------------------------------------------------
+Module Name : clkgen
+
+Description :
+Generates the SPI serial clock (SCLK) from the APB system clock (PCLK)
+using a programmable baud-rate divider. Supports all SPI modes through
+configurable CPOL and CPHA settings. Also generates timing signals for
+MOSI data transmission and MISO data sampling to ensure synchronized
+SPI communication.
+
+Key Functions:
+- Generates SPI clock (SCLK) from APB clock (PCLK)
+- Supports SPI Modes 0, 1, 2, and 3
+- Provides programmable baud-rate control
+- Generates MOSI transmit timing signals
+- Generates MISO receive timing signals
+- Controls clock behavior during SPI run and wait modes
+
+This module serves as the timing engine of the SPI controller.
+-----------------------------------------------------------------------------
+*/
+
 module clkgen(
     input pclk, preset, spiswai, ss,
     input [1:0] spimode,
