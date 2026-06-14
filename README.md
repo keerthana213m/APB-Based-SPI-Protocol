@@ -5,7 +5,7 @@
 
 This project implements an **APB (Advanced Peripheral Bus) based SPI (Serial Peripheral Interface) Controller** in Verilog RTL. The design enables communication between an APB master and SPI peripheral devices by integrating an APB slave interface with SPI master functionality. The controller supports configurable SPI modes (CPOL and CPHA), programmable baud rate generation, interrupt handling, and full-duplex serial data transfer.  
 
-### Key Features
+## Key Features
 
 * APB3-compliant slave interface for register access and control.
 * SPI Master communication with MOSI, MISO, SCLK, and SS signals.
@@ -16,7 +16,7 @@ This project implements an **APB (Advanced Peripheral Bus) based SPI (Serial Per
 * Support for MSB-first and LSB-first data transmission.
 * Modular RTL architecture for easy integration into SoC designs.  
 
-### Project Architecture
+## Project Architecture
 
 The SPI Controller consists of the following modules:
 
@@ -25,7 +25,7 @@ The SPI Controller consists of the following modules:
 3. **SPI Slave Select Generator** – Controls the Slave Select (SS) signal and transaction timing.
 4. **SPI Shifter** – Performs serial-to-parallel and parallel-to-serial data conversion for MOSI and MISO communication.   
 
-### Applications
+## Applications
 
 * Embedded Systems
 * Sensor Interfacing
@@ -33,7 +33,7 @@ The SPI Controller consists of the following modules:
 * FPGA and ASIC Communication Systems
 * SoC Peripheral Integration 
 
-### Technologies Used
+## Technologies Used
 
 * Verilog HDL
 * RTL Design
