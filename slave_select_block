@@ -1,0 +1,105 @@
+/*
+-----------------------------------------------------------------------------
+Module Name : spi_slave_select
+
+Description :
+Generates and controls the SPI Slave Select (SS) signal during data
+transfers. The module selects the SPI slave device when a transmission
+starts and deselects it after the transfer is complete. It also generates
+status signals to indicate transfer progress and data reception.
+
+Key Functions:
+- Generates active-low Slave Select (SS) signal
+- Controls SPI slave selection and deselection
+- Monitors transfer duration using baud-rate timing
+- Generates transfer-in-progress (TIP) status signal
+- Generates receive-data indication signal
+- Supports SPI run and wait operating modes
+
+This module manages SPI transaction timing and ensures proper
+synchronization between the SPI master and slave devices.
+-----------------------------------------------------------------------------
+*/
+
+// slave select block
+
+module slave(
+    input pclk, preset, mstr_i, spiswai_i,
+    input [1:0] spimode_i,
+    input send_data_i,
+    input [11:0] bd_i,
+    output reg recive_data_o,
+    output reg ss_o,
+    output tip_o
+);
+
+    wire [11:0] target;
+    reg [11:0] count;
+    reg rcv;
+
+    assign tip_o = ~ss_o;
+    assign target = bd_i * 8;
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset)
+            recive_data_o <= 1'b0;
+        else
+            recive_data_o <= rcv;
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            count <= 12'hfff;
+        end else if ((mstr_i) && ((spimode_i == 2'b00) || (spimode_i == 2'b01)) && (~spiswai_i)) begin
+            if (!send_data_i) begin
+                if (count <= (target - 1'b1))
+                    count <= count + 1'b1;
+                else
+                    count <= 12'hfff;
+            end else begin
+                count <= 12'd0;
+            end
+        end else begin
+            count <= 12'hfff;
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            rcv <= 1'b0;
+        end else if ((mstr_i) && ((spimode_i == 2'b00) || (spimode_i == 2'b01)) && (~spiswai_i)) begin
+            if (!send_data_i) begin
+                if (count <= (target - 1'b1)) begin
+                    if (count == (target - 1'b1))
+                        rcv <= 1'b1;
+                    else
+                        rcv <= 1'b0;
+                end else begin
+                    rcv <= 1'b0;
+                end
+            end else begin
+                rcv <= 1'b0;
+            end
+        end else begin
+            rcv <= 1'b0;
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            ss_o <= 1'b1;
+        end else if ((mstr_i) && ((spimode_i == 2'b00) || (spimode_i == 2'b01)) && (~spiswai_i)) begin
+            if (!send_data_i) begin
+                if (count <= (target - 1'b1))
+                    ss_o <= 1'b0;
+                else
+                    ss_o <= 1'b1;
+            end else begin
+                ss_o <= 1'b0;
+            end
+        end else begin
+            ss_o <= 1'b1;
+        end
+    end
+
+endmodule
