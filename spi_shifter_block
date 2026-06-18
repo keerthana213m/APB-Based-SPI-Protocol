@@ -1,0 +1,149 @@
+/*
+-----------------------------------------------------------------------------
+Module Name : spi_shifter
+
+Description :
+Handles serial data transmission and reception in the SPI controller.
+The module converts parallel data into serial data for MOSI transmission
+and converts received serial data from MISO into parallel data. Data
+shifting is controlled based on SPI clock timing, CPOL, CPHA, and data
+order configuration.
+
+Key Functions:
+- Performs parallel-to-serial conversion for MOSI transmission
+- Performs serial-to-parallel conversion for MISO reception
+- Supports both MSB-first and LSB-first data transfer
+- Transmits data according to SPI clock timing
+- Receives and stores incoming SPI data
+- Supports all SPI operating modes through CPOL and CPHA settings
+
+This module serves as the data transfer engine of the SPI controller,
+ensuring accurate and synchronized serial communication.
+-----------------------------------------------------------------------------
+*/
+
+------> CODE :
+
+module shift(
+    input pclk, preset, ss, send_data, lsbfe, cpol, cpha,
+    input miso_recive_sclk, miso_recive_sclk0,
+    input mosi_send_sclk, mosi_send_sclk0,
+    input [7:0] data_mosi,
+    input miso,
+    output reg mosi_o,
+    output [7:0] data_miso_o
+);
+
+    reg [2:0] count, count1, count2, count3;
+    reg [7:0] temp;
+    reg [7:0] shift_reg;
+
+    assign data_miso_o = temp;
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset)
+            shift_reg <= 8'h00;
+        else if (send_data)
+            shift_reg <= data_mosi;
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            mosi_o <= 1'b0;
+        end else if (~ss) begin
+            if ((~cpol && cpha) || (cpol && ~cpha)) begin
+                if (lsbfe) begin
+                    if (count <= 3'd7) begin
+                        if (mosi_send_sclk0) mosi_o <= shift_reg[count];
+                    end
+                end else begin
+                    if (count1 >= 3'd0) begin
+                        if (mosi_send_sclk0) mosi_o <= shift_reg[count1];
+                    end
+                end
+            end else begin
+                if (lsbfe) begin
+                    if (count <= 3'd7) begin
+                        if (mosi_send_sclk) mosi_o <= shift_reg[count];
+                    end
+                end else begin
+                    if (count1 >= 3'd0) begin
+                        if (mosi_send_sclk) mosi_o <= shift_reg[count1];
+                    end
+                end
+            end
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            count  <= 3'b000;
+            count1 <= 3'b111;
+        end else if (~ss) begin
+            if ((~cpol && cpha) || (cpol && ~cpha)) begin
+                if (lsbfe) begin
+                    if (count <= 3'd7) begin
+                        if (mosi_send_sclk0) count <= count + 1'b1;
+                    end else count <= 3'd0;
+                end else begin
+                    if (count1 >= 3'd0) begin
+                        if (mosi_send_sclk0) count1 <= count1 - 1'b1;
+                    end else count1 <= 3'd7;
+                end
+            end else begin
+                if (lsbfe) begin
+                    if (count <= 3'd7) begin
+                        if (mosi_send_sclk) count <= count + 1'b1;
+                    end else count <= 3'd0;
+                end else begin
+                    if (count1 >= 3'd0) begin
+                        if (mosi_send_sclk) count1 <= count1 - 1'b1;
+                    end else count1 <= 3'd7;
+                end
+            end
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            temp   <= 8'b0;
+            count2 <= 3'b000;
+            count3 <= 3'b111;
+        end else if (~ss) begin
+            if ((~cpol && cpha) || (cpol && ~cpha)) begin
+                if (lsbfe) begin
+                    if (count2 <= 3'd7) begin
+                        if (miso_recive_sclk0) begin
+                            temp[count2] <= miso;
+                            count2       <= count2 + 1'b1;
+                        end
+                    end else count2 <= 3'd0;
+                end else begin
+                    if (count3 >= 3'd0) begin
+                        if (miso_recive_sclk0) begin
+                            temp[count3] <= miso;
+                            count3       <= count3 - 1'b1;
+                        end
+                    end else count3 <= 3'd7;
+                end
+            end else begin
+                if (lsbfe) begin
+                    if (count2 <= 3'd7) begin
+                        if (miso_recive_sclk) begin
+                            temp[count2] <= miso;
+                            count2       <= count2 + 1'b1;
+                        end
+                    end else count2 <= 3'd0;
+                end else begin
+                    if (count3 >= 3'd0) begin
+                        if (miso_recive_sclk) begin
+                            temp[count3] <= miso;
+                            count3       <= count3 - 1'b1;
+                        end
+                    end else count3 <= 3'd7;
+                end
+            end
+        end
+    end
+
+endmodule
