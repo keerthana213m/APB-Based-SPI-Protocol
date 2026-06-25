@@ -1,0 +1,193 @@
+/*
+-----------------------------------------------------------------------------
+Module Name : apb_slave_interface
+
+Description :
+Acts as the communication bridge between the APB bus and the SPI controller.
+The module handles APB read and write transactions, manages SPI control,
+status, baud rate, and data registers, and generates control signals for
+SPI operation. It also supports interrupt generation and status monitoring
+to ensure proper communication between the processor and SPI peripheral.
+
+Key Functions:
+- Interfaces with the APB bus using APB protocol
+- Handles APB read and write operations
+- Manages SPI control, status, baud rate, and data registers
+- Configures SPI operating parameters (CPOL, CPHA, baud rate, etc.)
+- Generates control signals for SPI data transmission
+- Updates SPI status flags and interrupt requests
+- Supports SPI run, wait, and stop operating modes
+
+This module serves as the control and configuration unit of the SPI
+controller, enabling communication between the APB master and SPI core.
+-----------------------------------------------------------------------------
+*/
+
+// apb interface
+
+module apb(
+    input pclk, preset, pwrite, psel, penable, ss, receive_data, tip,
+    input [2:0] paddr,
+    input [7:0] pwdata, miso_data,
+    output reg [7:0] prdata_o,
+    output reg [7:0] mosi_data_o, // Explicit variable type added
+    output [2:0] sppr_o,          // Fixed to match width [2:0]
+    output [2:0] spr_o,
+    output mstr_o, cpol_o, cpha_o, lsbfe_o, spiswai_o, pready_o, psalve_o,
+    output [1:0] spi_mode,
+    output reg send_data_o, spi_int_req
+);
+
+    wire rd_enable, wr_enable;
+    reg [7:0] spi_cr1, spi_cr2, spi_bd, spi_dr;
+    wire [7:0] spi_cr2_mask, spi_bd_mask;
+    wire sptef, modef, spif, spie, sptie, ssoe, spe;
+    reg [2:0] state, ns, state1, ns1;
+    wire [7:0] spi_sr;
+
+    parameter idle     = 3'b000,
+              setup    = 3'b010,
+              access   = 3'b011,
+              spi_run  = 3'b100,
+              spi_wait = 3'b101,
+              spi_stop = 3'b110;
+
+    assign mstr_o      = spi_cr1[4];
+    assign cpol_o      = spi_cr1[3];
+    assign cpha_o      = spi_cr1[0];
+    assign lsbfe_o     = spi_cr1[1];
+    assign spiswai_o   = spi_cr2[0];
+    assign sppr_o      = spi_bd[6:4];
+    assign spr_o       = spi_bd[2:0];
+    assign modefn      = spi_cr2[4];
+    assign spie        = spi_cr1[7];
+    assign sptie       = spi_cr1[5];
+    assign spe         = spi_cr1[6];
+    assign ssoe        = spi_cr1[2];
+
+    assign sptef       = (spi_dr == 8'd0) ? 1'b1 : 1'b0;
+    assign spif        = (spi_dr == 8'd0) ? 1'b1 : 1'b0;
+    assign modef       = ((~ssoe) && (modefn) && (mstr_o) && (~ss));
+    assign rd_enable   = ((~pwrite) && (state == access)) ? 1'b1 : 1'b0;
+    assign wr_enable   = ((pwrite) && (state == access)) ? 1'b1 : 1'b0;
+    
+    assign spi_cr2_mask = 8'b00011011;
+    assign spi_bd_mask  = 8'b01110111;
+
+    assign pready_o    = (state == access) ? 1'b1 : 1'b0;
+    assign psalve_o    = (state == access) ? (~tip) : 1'b0;
+
+    assign spi_mode    = (state1 == spi_run) ? 2'b00 :
+                         (state1 == spi_wait) ? 2'b01 :
+                         (state1 == spi_stop) ? 2'b10 : 2'b11;
+
+    assign spi_sr      = ((!preset) ? 8'b0010_0000 : {spif, 1'b0, sptef, modef, 4'b0});
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) spi_cr1 <= 8'h00;
+        else if (wr_enable && (paddr == 3'b000)) spi_cr1 <= pwdata;
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) spi_cr2 <= 8'h00;
+        else if (wr_enable && (paddr == 3'b001)) spi_cr2 <= (pwdata & spi_cr2_mask);
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) spi_bd <= 8'h00;
+        else if (wr_enable && (paddr == 3'b010)) spi_bd <= (pwdata & spi_bd_mask);
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            spi_dr <= 8'd0;
+        end else if (wr_enable && (paddr == 3'b101)) begin
+            spi_dr <= pwdata;
+        end else if (((spi_mode == 2'b00) || (spi_mode == 2'b01)) && (~spiswai_o) && (spi_dr == miso_data) && (spi_dr == pwdata)) begin
+            spi_dr <= 8'b0;
+        end else if ((receive_data) && ((spi_mode == 2'b00) || (spi_mode == 2'b01))) begin
+            spi_dr <= miso_data;
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            send_data_o <= 1'b0;
+        end else if (wr_enable) begin
+            if (((spi_mode == 2'b00) || (spi_mode == 2'b01)) && (spi_dr == miso_data) && (spi_dr == pwdata))
+                send_data_o <= 1'b1;
+            else
+                send_data_o <= 1'b0;
+        end else begin
+            send_data_o <= 1'b0;
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            mosi_data_o <= 8'h0;
+        end else if (((spi_mode == 2'b00) || (spi_mode == 2'b01)) && (spi_dr == miso_data) && (spi_dr == pwdata)) begin
+            mosi_data_o <= spi_dr;
+        end
+    end
+
+    always @(*) begin
+        if (rd_enable) begin
+            case (paddr)
+                3'b000:  prdata_o = spi_cr1;
+                3'b001:  prdata_o = spi_cr2;
+                3'b010:  prdata_o = spi_bd;
+                3'b011:  prdata_o = spi_sr;
+                3'b101:  prdata_o = spi_dr;
+                default: prdata_o = 8'b0;
+            endcase
+        end else begin
+            prdata_o = 8'b0;
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) begin
+            spi_int_req <= 1'b0;
+        end else if (spie || sptie) begin
+            if (sptie && spie)
+                spi_int_req <= (spif || modef || sptef);
+            else if (sptie)
+                spi_int_req <= sptef;
+            else
+                spi_int_req <= (spif || modef);
+        end else begin
+            spi_int_req <= 1'b0;
+        end
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) state <= idle;
+        else state <= ns;
+    end
+
+    always @(*) begin
+        case (state)
+            idle:   ns = (psel && !penable) ? setup : idle;
+            setup:  ns = (!psel) ? idle : ((psel && penable) ? access : setup);
+            access: ns = psel ? setup : idle;
+            default: ns = idle;
+        endcase
+    end
+
+    always @(posedge pclk or negedge preset) begin
+        if (!preset) state1 <= spi_run;
+        else state1 <= ns1;
+    end
+
+    always @(*) begin
+        case (state1)
+            spi_run:  ns1 = (!spe) ? spi_wait : spi_run;
+            spi_wait: ns1 = spiswai_o ? spi_stop : spi_wait;
+            spi_stop: ns1 = (!spiswai_o) ? spi_wait : (spe ? spi_run : spi_stop);
+            default:  ns1 = spi_run;
+        endcase
+    end
+
+endmodule
+
