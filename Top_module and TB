@@ -1,0 +1,306 @@
+// top module
+
+`include "baud.sv"
+`include "ss.sv"
+`include "shift.sv"
+`include "apb.sv"
+
+module top(
+    input PCLK, PRESET, PWRITE, PSEL, PENABLE, MISO,
+    input [2:0] PADDR,
+    input [7:0] PWDATA,
+    output SS, SCLK, SPI_INT_REQ, MOSI, PREADY, PSLAVE,
+    output [7:0] PRDATA
+);
+
+    wire CPOL, CPHA, SPISWAI;
+    wire [2:0] SPPR_I, SPR_I;
+    wire [1:0] SPI_MODE;
+    wire MISO_RECIVE_SCLK, MISO_RECIVE_SCLK0, MOSI_SEND_SCLK, MOSI_SEND_SCLK0;
+    wire [11:0] BD;
+
+    wire MSTR_I, SEND_DATA_I;
+    wire RECIVE_DATA, TIP;
+
+    wire LSBFE;
+    wire [7:0] DATA_MOSI;
+    wire [7:0] DATA_MISO_O;
+
+    clkgen dut1(
+        .pclk(PCLK), .preset(PRESET), .spiswai(SPISWAI), .ss(SS),
+        .spimode(SPI_MODE), .sppr_i(SPPR_I), .spr_i(SPR_I),
+        .cpol(CPOL), .cpha(CPHA), .sclk(SCLK),
+        .miso_recive_sclk_o(MISO_RECIVE_SCLK), .miso_recive_sclk0_o(MISO_RECIVE_SCLK0),
+        .mosi_send_sclk_o(MOSI_SEND_SCLK), .mosi_send_sclk0_o(MOSI_SEND_SCLK0),
+        .bd(BD)
+    );
+
+    slave dut2(
+        .pclk(PCLK), .preset(PRESET), .mstr_i(MSTR_I), .spiswai_i(SPISWAI),
+        .spimode_i(SPI_MODE), .send_data_i(SEND_DATA_I), .bd_i(BD),
+        .recive_data_o(RECIVE_DATA), .ss_o(SS), .tip_o(TIP)
+    );
+
+    shift dut3(
+        .pclk(PCLK), .preset(PRESET), .ss(SS), .send_data(SEND_DATA_I),
+        .lsbfe(LSBFE), .cpol(CPOL), .cpha(CPHA),
+        .miso_recive_sclk(MISO_RECIVE_SCLK), .miso_recive_sclk0(MISO_RECIVE_SCLK0),
+        .mosi_send_sclk(MOSI_SEND_SCLK), .mosi_send_sclk0(MOSI_SEND_SCLK0),
+        .data_mosi(DATA_MOSI), .miso(MISO), .mosi_o(MOSI), .data_miso_o(DATA_MISO_O)
+    );
+
+    apb dut4(
+        .pclk(PCLK), .preset(PRESET), .paddr(PADDR), .pwrite(PWRITE),
+        .psel(PSEL), .penable(PENABLE), .pwdata(PWDATA), .ss(SS),
+        .miso_data(DATA_MISO_O), 
+        .receive_data(RECIVE_DATA), // FIXED PORT NAME SPELLING HERE!
+        .tip(TIP),
+        .prdata_o(PRDATA), .mstr_o(MSTR_I), .cpol_o(CPOL), .cpha_o(CPHA),
+        .lsbfe_o(LSBFE), .spiswai_o(SPISWAI), .sppr_o(SPPR_I), .spr_o(SPR_I),
+        .spi_int_req(SPI_INT_REQ), .pready_o(PREADY), .psalve_o(PSLAVE),
+        .send_data_o(SEND_DATA_I), .mosi_data_o(DATA_MOSI), .spi_mode(SPI_MODE)
+    );
+
+endmodule
+
+// testbench
+
+`timescale 1ns/1ns
+
+module top_tb();
+
+reg PCLK, PRESET, PWRITE, PENABLE, PSEL, MISO;
+reg [2:0] PADDR;
+reg [7:0] PWDATA;
+
+wire SS, SCLK, SPI_INT_REQ, MOSI, PREADY, PSLAVE;
+wire [7:0] PRDATA;
+
+parameter CYCLE = 40;
+integer i;
+
+// DUT
+top dut(
+    .PCLK(PCLK),
+    .PRESET(PRESET),
+    .PADDR(PADDR),
+    .PWRITE(PWRITE),
+    .PSEL(PSEL),
+    .PENABLE(PENABLE),
+    .PWDATA(PWDATA),
+    .MISO(MISO),
+    .SS(SS),
+    .SCLK(SCLK),
+    .SPI_INT_REQ(SPI_INT_REQ),
+    .MOSI(MOSI),
+    .PRDATA(PRDATA),
+    .PREADY(PREADY),
+    .PSLAVE(PSLAVE)
+);
+
+// Clock Generation
+always #(CYCLE/2) PCLK = ~PCLK;
+
+//-----------------------------------------------------
+// Initialization
+//-----------------------------------------------------
+task initialize;
+begin
+    PCLK    = 0;
+    PRESET  = 0;
+    PADDR   = 0;
+    PWRITE  = 0;
+    PSEL    = 0;
+    PENABLE = 0;
+    PWDATA  = 0;
+    MISO    = 0;
+end
+endtask
+
+//-----------------------------------------------------
+// Reset
+//-----------------------------------------------------
+task resets;
+begin
+    @(negedge PCLK);
+    PRESET = 0;
+
+    @(negedge PCLK);
+    PRESET = 1;
+
+    $display("[%0t] Reset Released", $time);
+end
+endtask
+
+//-----------------------------------------------------
+// APB Write
+//-----------------------------------------------------
+task writes(
+    input [7:0] data,
+    input [2:0] addr
+);
+begin
+
+    @(negedge PCLK);
+    PADDR   = addr;
+    PWDATA  = data;
+    PWRITE  = 1;
+    PSEL    = 1;
+    PENABLE = 0;
+
+    @(negedge PCLK);
+    PENABLE = 1;
+
+    fork
+        begin
+            wait(PREADY);
+        end
+        begin
+            #1000;
+            $display("[%0t] ERROR: WRITE PREADY Timeout", $time);
+        end
+    join_any
+    disable fork;
+
+    @(negedge PCLK);
+    PSEL    = 0;
+    PENABLE = 0;
+
+    $display("[%0t] WRITE Addr=%0d Data=%h",
+             $time, addr, data);
+
+end
+endtask
+
+//-----------------------------------------------------
+// APB Read
+//-----------------------------------------------------
+task reads(
+    input [2:0] addr
+);
+begin
+
+    @(negedge PCLK);
+    PADDR   = addr;
+    PWRITE  = 0;
+    PSEL    = 1;
+    PENABLE = 0;
+
+    @(negedge PCLK);
+    PENABLE = 1;
+
+    fork
+        begin
+            wait(PREADY);
+        end
+        begin
+            #1000;
+            $display("[%0t] ERROR: READ PREADY Timeout", $time);
+        end
+    join_any
+    disable fork;
+
+    @(negedge PCLK);
+    PSEL    = 0;
+    PENABLE = 0;
+
+    $display("[%0t] READ Addr=%0d Data=%h",
+             $time, addr, PRDATA);
+
+end
+endtask
+
+//-----------------------------------------------------
+// SPI Slave Model
+//-----------------------------------------------------
+task miso(
+    input [7:0] miso_data
+);
+
+integer k;
+
+begin
+
+    fork
+        begin
+            wait(!SS);
+
+            $display("[%0t] SS Active", $time);
+
+            for(k=7; k>=0; k=k-1)
+            begin
+                @(posedge SCLK);
+                MISO = miso_data[k];
+            end
+
+            $display("[%0t] MISO Transfer Done", $time);
+        end
+
+        begin
+            #5000;
+            $display("[%0t] ERROR: SS never asserted", $time);
+        end
+    join_any
+    disable fork;
+
+end
+endtask
+
+//-----------------------------------------------------
+// Debug Monitor
+//-----------------------------------------------------
+always @(posedge PCLK)
+begin
+    $display("T=%0t PSEL=%b PENABLE=%b PREADY=%b SS=%b SCLK=%b",
+              $time,PSEL,PENABLE,PREADY,SS,SCLK);
+end
+
+//-----------------------------------------------------
+// Test Sequence
+//-----------------------------------------------------
+initial
+begin
+
+    $dumpfile("dump.vcd");
+    $dumpvars(0, top_tb);
+
+    initialize();
+    resets();
+
+    // SPI/APB Configuration Registers
+    writes(8'h33, 3'b000);
+    writes(8'h10, 3'b001);
+    writes(8'h01, 3'b010);
+    writes(8'h11, 3'b011);
+
+    // Start SPI Transfer
+    writes(8'hAA, 3'b101);
+
+    fork
+
+        begin
+            miso(8'h05);
+        end
+
+        begin
+            #2000;
+
+            reads(3'b000);
+            reads(3'b001);
+            reads(3'b010);
+            reads(3'b011);
+            reads(3'b101);
+        end
+
+    join
+
+    #1000;
+
+    $display("Simulation Completed");
+    $finish;
+
+end
+
+endmodule
+
+
